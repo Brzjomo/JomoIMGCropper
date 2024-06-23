@@ -1,4 +1,4 @@
-using System.Drawing.Drawing2D;
+using FreeImageAPI;
 using System.Drawing.Imaging;
 
 namespace JomoIMGCropper
@@ -34,51 +34,65 @@ namespace JomoIMGCropper
 
             foreach (string file in files)
             {
-                string extension = Path.GetExtension(file).ToLower();
-
-                ImageCodecInfo codec = Array.Find(ImageCodecInfo.GetImageEncoders(), c => c.FilenameExtension.ToLower().Contains(extension));
-                if (codec == null)
+                try
                 {
-                    Console.WriteLine($"跳过不支持的文件格式: {Path.GetFileName(file)}");
-                    continue;
-                }
-
-                using (Image originalImage = Image.FromFile(file))
-                {
-                    int width = originalImage.Width;
-                    int height = originalImage.Height;
-
-                    int newWidth, newHeight;
-                    int startX, startY;
-
-                    if (width > height)
+                    using (FileStream stream = new FileStream(file, FileMode.Open))
                     {
-                        newWidth = maxSize;
-                        newHeight = (int)((double)height / width * maxSize);
-                        startX = 0;
-                        startY = (maxSize - newHeight) / 2;
-                    }
-                    else
-                    {
-                        newWidth = (int)((double)width / height * maxSize);
-                        newHeight = maxSize;
-                        startX = (maxSize - newWidth) / 2;
-                        startY = 0;
-                    }
-
-                    using (Bitmap resizedImage = new Bitmap(maxSize, maxSize))
-                    {
-                        resizedImage.SetResolution(resolution, resolution);
-
-                        using (Graphics g = Graphics.FromImage(resizedImage))
+                        using (Image image = Image.FromStream(stream, false, false))
                         {
-                            g.FillRectangle(Brushes.White, 0, 0, maxSize, maxSize); // 先填充白色背景
-                            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                            g.DrawImage(originalImage, startX, startY, newWidth, newHeight); // 绘制原始图片在中心
+                            int newWidth, newHeight;
+
+                            if (image.Width > image.Height)
+                            {
+                                newWidth = maxSize;
+                                newHeight = (int)(((double)image.Height / image.Width) * maxSize);
+                            }
+                            else
+                            {
+                                newHeight = maxSize;
+                                newWidth = (int)(((double)image.Width / image.Height) * maxSize);
+                            }
+
+                            Bitmap newImage = new Bitmap(maxSize, maxSize);
+                            Graphics graphics = Graphics.FromImage(newImage);
+                            graphics.FillRectangle(Brushes.White, 0, 0, maxSize, maxSize);
+                            graphics.DrawImage(image, (maxSize - newWidth) / 2, (maxSize - newHeight) / 2, newWidth, newHeight);
+
+                            string outputFilePath = Path.Combine(outputFolder, Path.GetFileName(file));
+                            string[] _ = outputFilePath.Split('.');
+                            outputFilePath = _[0] + ".jpeg";
+                            newImage.SetResolution(resolution, resolution);
+                            newImage.Save(outputFilePath, ImageFormat.Jpeg);
                         }
+                    }
+                }
+                catch
+                {
+                    // 对于不支持的图片，使用FreeImage库处理
+                    FIBITMAP bitmap = FreeImage.LoadEx(file);
+
+                    if (!bitmap.IsNull)
+                    {
+                        int width = (int)FreeImage.GetWidth(bitmap);
+                        int height = (int)FreeImage.GetHeight(bitmap);
+
+                        double aspectRatio = (double)width / height;
+                        int newWidth = width > height ? maxSize : (int)(maxSize * aspectRatio);
+                        int newHeight = width > height ? (int)(maxSize / aspectRatio) : maxSize;
+
+                        Bitmap newImage = new Bitmap(maxSize, maxSize);
+                        Graphics graphics = Graphics.FromImage(newImage);
+                        graphics.FillRectangle(Brushes.White, 0, 0, maxSize, maxSize);
+                        Image image = FreeImage.GetBitmap(bitmap);
+                        graphics.DrawImage(image, (maxSize - newWidth) / 2, (maxSize - newHeight) / 2, newWidth, newHeight);
 
                         string outputFilePath = Path.Combine(outputFolder, Path.GetFileName(file));
-                        resizedImage.Save(outputFilePath, codec, null);
+                        string[] _ = outputFilePath.Split('.');
+                        outputFilePath = _[0] + ".jpeg";
+                        newImage.SetResolution(resolution, resolution);
+                        newImage.Save(outputFilePath, ImageFormat.Jpeg);
+
+                        FreeImage.Unload(bitmap);
                     }
                 }
             }
