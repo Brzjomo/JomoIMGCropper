@@ -1,5 +1,6 @@
 using FreeImageAPI;
 using System.Drawing.Imaging;
+using System.Text;
 
 namespace JomoIMGCropper
 {
@@ -35,9 +36,11 @@ namespace JomoIMGCropper
 
             int maxSize = 512; // 最大宽度或高度
 
-            try {
+            try
+            {
                 maxSize = Int16.Parse(TB_MaxSizeLimit.Text);
-            } catch
+            }
+            catch
             {
                 MessageBox.Show("图片最大尺寸设置错误" + ",\n请检查是否为数字", "提醒", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
@@ -92,7 +95,8 @@ namespace JomoIMGCropper
                                 outputFilePath = _[0] + ".jpeg";
                                 newImage.SetResolution(resolution, resolution);
                                 newImage.Save(outputFilePath, ImageFormat.Jpeg);
-                            } else
+                            }
+                            else
                             {
                                 string outputFilePath = Path.Combine(OutputFolder, Path.GetFileName(file));
                                 string[] _ = outputFilePath.Split('.');
@@ -136,7 +140,8 @@ namespace JomoIMGCropper
 
                             FreeImage.Unload(bitmap);
                         }
-                    } else
+                    }
+                    else
                     {
                         if (!bitmap.IsNull)
                         {
@@ -247,6 +252,146 @@ namespace JomoIMGCropper
             else
             {
                 TB_MaxSizeLimit.Enabled = false;
+            }
+        }
+
+        // 图片下载器
+        private static string linksFile = String.Empty;
+        private static string imgSaveFolder = String.Empty;
+        private static List<string> imageUrls = [];
+
+        private void LLB_LinksFile_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
+        {
+            if (linksFile != "")
+            {
+                string[] fileName = linksFile.Split("\\");
+                string fileFolderPath = linksFile.Replace(fileName[^1], "");
+
+                try
+                {
+                    System.Diagnostics.Process.Start("explorer", fileFolderPath);
+                }
+                catch
+                {
+                    MessageBox.Show("路径错误！请确认路径是否存在！", "路径错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void LLB_SavePath_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
+        {
+            if (imgSaveFolder != "")
+            {
+                try
+                {
+                    System.Diagnostics.Process.Start("explorer", imgSaveFolder);
+                }
+                catch
+                {
+                    MessageBox.Show("路径错误！请确认路径是否存在！", "路径错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void BTN_SelectLinksFile_Click(object sender, EventArgs e)
+        {
+            OpenFileDialog openFileDialog = new()
+            {
+                FileName = "选择一个txt文件",
+                Filter = "txt文件(*.txt)|*.txt",
+                Title = "打开txt文件"
+            };
+
+            if (openFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                linksFile = openFileDialog.FileName;
+
+                string[] fileName = openFileDialog.FileName.Split("\\");
+                string openFileName = fileName[^1];
+                LLB_LinksFile.Text = openFileName;
+            }
+        }
+
+        private void BTN_SelectSavePath_Click(object sender, EventArgs e)
+        {
+            FolderBrowserDialog folderBrowserDialog = new();
+
+            DialogResult result = folderBrowserDialog.ShowDialog();
+
+            if (result == DialogResult.OK)
+            {
+                imgSaveFolder = folderBrowserDialog.SelectedPath;
+                LLB_SavePath.Text = imgSaveFolder.Split('\\')[^1];
+            }
+        }
+
+        private async void BTN_Download_Click(object sender, EventArgs e)
+        {
+            if (linksFile == String.Empty)
+            {
+                MessageBox.Show("请先选择包含下载链接的txt文件", "未指定下载链接", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            } else if (imgSaveFolder == String.Empty)
+            {
+                MessageBox.Show("请先指定保存图片的目录", "未指定保存目录", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            await GetLinksFromFile();
+
+            if (imageUrls.Count < 1)
+            {
+                MessageBox.Show("请确保txt文件中下载链接不为空", "链接为空", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            PB_Download.Maximum = imageUrls.Count;
+            var progress = new Progress<int>(value =>
+            {
+                UpdateProgressBar(value);
+            });
+
+            var downloader = new ImageDownloader(imageUrls, imgSaveFolder, (int)NUD_MaxThreads.Value, progress);
+            await downloader.DownloadImagesAsync();
+
+            MessageBox.Show("下载完成!", "完成", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+        }
+
+        private void UpdateProgressBar(int value)
+        {
+            if (PB_Download.InvokeRequired)
+            {
+                PB_Download.Invoke(new Action<int>(UpdateProgressBar), value);
+            }
+            else
+            {
+                PB_Download.Value = value;
+            }
+        }
+
+        private async static Task GetLinksFromFile()
+        {
+            imageUrls.Clear();
+
+            var inputStream = new StreamReader(linksFile, Encoding.UTF8);
+            var input = await inputStream.ReadToEndAsync();
+            inputStream.Close();
+
+            string[] inputString = input.Split(['\r', '\n']);
+
+            foreach (var line in inputString)
+            {
+                if (line != "")
+                {
+                    if (line.Contains('\t'))
+                    {
+                        imageUrls.Add(line.Trim(['\t']));
+                    }
+                    else
+                    {
+                        imageUrls.Add(line);
+                    }
+                }
             }
         }
     }
